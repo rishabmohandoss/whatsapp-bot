@@ -156,4 +156,6 @@ Only include items that exactly match the menu: chicken biryani, naan, butter ch
 
 app.listen(port, () => {
   console.log(`🚀 Server is running on port ${port}`);
+  console.log("📞 phoneNumberId from env:", phoneNumberId);
+
 });
