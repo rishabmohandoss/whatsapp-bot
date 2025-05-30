@@ -140,6 +140,7 @@ Only include items you recognize.`;
     });
 
     const content = response.choices[0].message.content.trim();
+    console.log("🧠 GPT Response:", content);
 
     return JSON.parse(content);
   } catch (error) {
