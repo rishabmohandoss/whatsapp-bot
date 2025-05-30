@@ -7,8 +7,9 @@ const port = process.env.PORT || 3000;
 
 // ✅ Replace with your OpenAI key
 const openai = new OpenAI({
-  apiKey: "sk-REPLACE_WITH_YOUR_KEY"
+  apiKey: process.env.OPENAI_API_KEY
 });
+
 
 // ✅ Replace with your actual token + phone number ID from Meta
 const accessToken = "EAAe4ZCBaZBPoABO9nmWefpwCsJfPj7wxdkYgtg8nIUrZBSIRsTZBZA4c0c3W2QyqkQmRG7pQlsTRhdcxEynt7eT2kHFHzo20ZCIZCvArkihBZB6yS3ZBEjxZBkXlagGJsy76AEtMcRSWzp9xgcUhA34AkuXnRmcDmMkO1woZC1AvEY09p1JC7DoGZCz268d3vEo0RgZDZD";
