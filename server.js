@@ -10,7 +10,8 @@ const openai = new OpenAI({
 });
 
 const accessToken = process.env.ACCESS_TOKEN;
-const phoneNumberId = process.env.PHONE_NUMBER_ID;
+const phoneNumberId = "634093596444481";
+//const phoneNumberId = process.env.PHONE_NUMBER_ID;
 
 const MENU = {
   "chicken biryani": 12,
