@@ -5,7 +5,8 @@ const { OpenAI } = require("openai");
 const app = express();
 const port = process.env.PORT || 3000;
 
-const openai = new OpenAI({ apiKey: "sk-REPLACE_WITH_YOUR_KEY" });
+const openai = new OpenAI({ apiKey: "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" });
+//const openai = new OpenAI({ apiKey: "sk-REPLACE_WITH_YOUR_KEY" });
 const accessToken = "EAAe4ZCBaZBPoABO9nmWefpwCsJfPj7wxdkYgtg8nIUrZBSIRsTZBZA4c0c3W2QyqkQmRG7pQlsTRhdcxEynt7eT2kHFHzo20ZCIZCvArkihBZB6yS3ZBEjxZBkXlagGJsy76AEtMcRSWzp9xgcUhA34AkuXnRmcDmMkO1woZC1AvEY09p1JC7DoGZCz268d3vEo0RgZDZD";
 const phoneNumberId = "634093596444481";
 
