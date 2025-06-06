@@ -6,8 +6,9 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const accessToken = "EAAe4ZCBaZBPoABO9nmWefpwCsJfPj7wxdkYgtg8nIUrZBSIRsTZBZA4c0c3W2QyqkQmRG7pQlsTRhdcxEynt7eT2kHFHzo20ZCIZCvArkihBZB6yS3ZBEjxZBkXlagGJsy76AEtMcRSWzp9xgcUhA34AkuXnRmcDmMkO1woZC1AvEY09p1JC7DoGZCz268d3vEo0RgZDZD";
-const phoneNumberId = "634093596444481";
+const accessToken = process.env.ACCESS_TOKEN;
+const phoneNumberId = process.env.PHONE_NUMBER_ID;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 const MENU = {
   "chicken biryani": 12,
@@ -17,12 +18,10 @@ const MENU = {
 };
 
 const orderSessions = {};
-const greetedUsers = new Set();
 
 app.use(express.json());
 
 app.get('/webhook', (req, res) => {
-  const VERIFY_TOKEN = "REPLACE_WITH_YOUR_VERIFY_TOKEN";
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -39,77 +38,88 @@ app.post('/webhook', async (req, res) => {
   const changes = entry?.changes?.[0];
   const message = changes?.value?.messages?.[0];
 
-  if (message?.type === 'text') {
-    const customerText = message.text.body.trim().toLowerCase();
-    const customerNumber = message.from;
-
-    if (!greetedUsers.has(customerNumber)) {
-      greetedUsers.add(customerNumber);
-      await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
+  if (!message?.text) {
+    const customerNumber = message?.from;
+    if (customerNumber) {
+      await sendWhatsAppMessage(customerNumber, "Sorry, I can only process text orders right now.");
     }
+    return res.sendStatus(200);
+  }
 
-    const confirmationYes = ["yes", "yeah", "y"].includes(customerText);
-    const confirmationNo = ["no", "nah", "n"].includes(customerText);
+  const customerText = message.text.body.trim().toLowerCase();
+  const customerNumber = message.from;
 
-    if (confirmationYes) {
-      const lastOrder = orderSessions[customerNumber];
-      if (lastOrder) {
-        await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
-        delete orderSessions[customerNumber];
-      } else {
-        await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
-      }
-    }
+  console.log(`Incoming from ${customerNumber}: ${customerText}`);
 
-    else if (confirmationNo) {
-      const lastOrder = orderSessions[customerNumber];
-      if (lastOrder) {
-        await sendWhatsAppMessage(customerNumber, `Would you like to add more items to your order or cancel it? Please reply with 'add more' or 'cancel'.`);
-      } else {
-        await sendWhatsAppMessage(customerNumber, `❌ No active order found.`);
-      }
-    }
+  if (!orderSessions[customerNumber]) {
+    orderSessions[customerNumber] = { greeted: true, items: {}, total: 0 };
+    await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
+  }
 
-    else if (customerText.includes("add more")) {
-      await sendWhatsAppMessage(customerNumber, `Sure, send the items you’d like to add to your current order.`);
-    }
+  const confirmationYes = ["yes", "yeah", "y"].includes(customerText);
+  const confirmationNo = ["no", "nah", "n"].includes(customerText);
 
-    else if (customerText.includes("cancel")) {
+  if (confirmationYes) {
+    const lastOrder = orderSessions[customerNumber];
+    if (lastOrder?.total > 0) {
+      await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
       delete orderSessions[customerNumber];
-      await sendWhatsAppMessage(customerNumber, `✅ Your order has been cancelled.`);
+    } else {
+      await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
+    }
+  }
+
+  else if (confirmationNo) {
+    const lastOrder = orderSessions[customerNumber];
+    if (lastOrder?.total > 0) {
+      await sendWhatsAppMessage(customerNumber, `Would you like to add more items to your order or cancel it? Please reply with 'add more' or 'cancel'.`);
+    } else {
+      await sendWhatsAppMessage(customerNumber, `❌ No active order found.`);
+    }
+  }
+
+  else if (customerText.includes("add more")) {
+    await sendWhatsAppMessage(customerNumber, `Sure, send the items you’d like to add to your current order.`);
+  }
+
+  else if (customerText.includes("cancel")) {
+    delete orderSessions[customerNumber];
+    await sendWhatsAppMessage(customerNumber, `✅ Your order has been cancelled.`);
+  }
+
+  else {
+    const aiOrder = await parseOrderWithAI(customerText);
+    console.log("Parsed order:", aiOrder);
+    const validItems = {};
+    for (const item in aiOrder || {}) {
+      if (MENU.hasOwnProperty(item.toLowerCase())) {
+        let qty = aiOrder[item];
+        if (qty > 20) qty = 20;
+        validItems[item] = qty;
+      }
     }
 
-    else {
-      const aiOrder = await parseOrderWithAI(customerText);
-      const validItems = {};
-      for (const item in aiOrder || {}) {
-        if (MENU.hasOwnProperty(item.toLowerCase())) {
-          validItems[item] = aiOrder[item];
-        }
+    if (Object.keys(validItems).length > 0) {
+      let summary = "🧾 Your order:\n";
+      let total = 0;
+      for (const item in validItems) {
+        const qty = validItems[item];
+        const price = MENU[item.toLowerCase()] || 0;
+        summary += `- ${qty}x ${item} ($${price * qty})\n`;
+        total += price * qty;
       }
+      summary += `\n💰 Total: $${total}\nReply 'yes' to confirm or 'no' to modify.`;
 
-      if (Object.keys(validItems).length > 0) {
-        let summary = "🧾 Your order:\n";
-        let total = 0;
-        for (const item in validItems) {
-          const qty = validItems[item];
-          const price = MENU[item.toLowerCase()] || 0;
-          summary += `- ${qty}x ${item} ($${price * qty})\n`;
-          total += price * qty;
-        }
-        summary += `\n💰 Total: $${total}\nReply 'yes' to confirm or 'no' to modify.`;
-
-        if (!orderSessions[customerNumber]) orderSessions[customerNumber] = { items: {}, total: 0 };
-        for (const item in validItems) {
-          orderSessions[customerNumber].items[item] = (orderSessions[customerNumber].items[item] || 0) + validItems[item];
-        }
-        orderSessions[customerNumber].total += total;
-
-        await sendWhatsAppMessage(customerNumber, summary);
-      } else {
-        const fallback = await fallbackAI(customerText);
-        await sendWhatsAppMessage(customerNumber, fallback);
+      if (!orderSessions[customerNumber]) orderSessions[customerNumber] = { items: {}, total: 0 };
+      for (const item in validItems) {
+        orderSessions[customerNumber].items[item] = (orderSessions[customerNumber].items[item] || 0) + validItems[item];
       }
+      orderSessions[customerNumber].total += total;
+
+      await sendWhatsAppMessage(customerNumber, summary);
+    } else {
+      const fallback = await fallbackAI(customerText);
+      await sendWhatsAppMessage(customerNumber, fallback);
     }
   }
   res.sendStatus(200);
@@ -146,7 +156,7 @@ async function sendWhatsAppMessage(to, message) {
 }
 
 async function parseOrderWithAI(text) {
-  const prompt = `Extract a structured food order from this message:\n"${text}"\nReturn a JSON object only using these menu items: ${Object.keys(MENU).join(", ")}. Format: {\"item\": quantity}`;
+  const prompt = `You are a food ordering assistant. The menu is: ${Object.entries(MENU).map(([k, v]) => `${k} $${v}`).join(', ')}.\nExtract only valid menu items and quantities from this message: "${text}"\nRespond only with JSON like: {"naan": 1, "coke": 2}`;
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
