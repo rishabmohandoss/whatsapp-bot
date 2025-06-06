@@ -5,10 +5,13 @@ const { OpenAI } = require("openai");
 const app = express();
 const port = process.env.PORT || 3000;
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const accessToken = process.env.ACCESS_TOKEN;
-const phoneNumberId = process.env.PHONE_NUMBER_ID;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "your-local-api-key" });
+const accessToken = process.env.ACCESS_TOKEN || "your-local-access-token";
+const phoneNumberId = "634093596444481";
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "your-local-verify-token";
+
+if (!accessToken) console.warn("⚠️ accessToken is undefined!");
+if (!phoneNumberId) console.warn("⚠️ phoneNumberId is undefined!");
 
 const MENU = {
   "chicken biryani": 12,
@@ -52,8 +55,12 @@ app.post('/webhook', async (req, res) => {
   console.log(`Incoming from ${customerNumber}: ${customerText}`);
 
   if (!orderSessions[customerNumber]) {
-    orderSessions[customerNumber] = { greeted: true, items: {}, total: 0 };
+    orderSessions[customerNumber] = { greeted: false, items: {}, total: 0 };
+  }
+
+  if (!orderSessions[customerNumber].greeted) {
     await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
+    orderSessions[customerNumber].greeted = true;
   }
 
   const confirmationYes = ["yes", "yeah", "y"].includes(customerText);
@@ -178,7 +185,9 @@ async function fallbackAI(text) {
       messages: [{ role: "user", content: fallbackPrompt }],
       temperature: 0.7
     });
-    return response.choices[0].message.content.trim();
+    return typeof response.choices[0].message.content === "string"
+      ? response.choices[0].message.content.trim()
+      : "Sorry, I didn’t understand that. Please order like: 2 biryanis and a coke.";
   } catch (error) {
     return "Sorry, I didn’t understand that. Please order like: 2 biryanis and a coke.";
   }
