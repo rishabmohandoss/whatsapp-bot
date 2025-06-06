@@ -55,8 +55,16 @@ app.post('/webhook', async (req, res) => {
   console.log(`Incoming from ${customerNumber}: ${customerText}`);
 
   if (!orderSessions[customerNumber]) {
-    orderSessions[customerNumber] = { greeted: false, items: {}, total: 0 };
-  }
+  // Create session and send welcome
+  orderSessions[customerNumber] = { greeted: false, items: {}, total: 0 };
+}
+
+if (!orderSessions[customerNumber].greeted) {
+  orderSessions[customerNumber].greeted = true;
+  await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
+  return res.sendStatus(200); // Stop processing further
+}
+
 
   if (!orderSessions[customerNumber].greeted) {
     await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
@@ -67,14 +75,15 @@ app.post('/webhook', async (req, res) => {
   const confirmationNo = ["no", "nah", "n"].includes(customerText);
 
   if (confirmationYes) {
-    const lastOrder = orderSessions[customerNumber];
-    if (lastOrder?.total > 0) {
-      await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
-      delete orderSessions[customerNumber];
-    } else {
-      await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
-    }
+  const lastOrder = orderSessions[customerNumber];
+  if (lastOrder?.total > 0) {
+    await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
+    await sendWhatsAppMessage(customerNumber, `🧾 To complete your payment, please visit: https://buy.stripe.com/14A14mbBX8TmeaI3alf7i00`);
+    delete orderSessions[customerNumber];
+  } else {
+    await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
   }
+}
 
   else if (confirmationNo) {
     const lastOrder = orderSessions[customerNumber];
