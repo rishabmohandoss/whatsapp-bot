@@ -1,11 +1,9 @@
 const express = require('express');
 const axios = require('axios');
-const { OpenAI } = require("openai");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "your-local-api-key" });
 const accessToken = process.env.ACCESS_TOKEN || "your-local-access-token";
 const phoneNumberId = "634093596444481";
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "your-local-verify-token";
@@ -55,35 +53,28 @@ app.post('/webhook', async (req, res) => {
   console.log(`Incoming from ${customerNumber}: ${customerText}`);
 
   if (!orderSessions[customerNumber]) {
-  // Create session and send welcome
-  orderSessions[customerNumber] = { greeted: false, items: {}, total: 0 };
-}
-
-if (!orderSessions[customerNumber].greeted) {
-  orderSessions[customerNumber].greeted = true;
-  await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
-  return res.sendStatus(200); // Stop processing further
-}
-
+    orderSessions[customerNumber] = { greeted: false, items: {}, total: 0 };
+  }
 
   if (!orderSessions[customerNumber].greeted) {
-    await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
     orderSessions[customerNumber].greeted = true;
+    await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
+    return res.sendStatus(200);
   }
 
   const confirmationYes = ["yes", "yeah", "y"].includes(customerText);
   const confirmationNo = ["no", "nah", "n"].includes(customerText);
 
   if (confirmationYes) {
-  const lastOrder = orderSessions[customerNumber];
-  if (lastOrder?.total > 0) {
-    await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
-    await sendWhatsAppMessage(customerNumber, `🧾 To complete your payment, please visit: https://buy.stripe.com/14A14mbBX8TmeaI3alf7i00`);
-    delete orderSessions[customerNumber];
-  } else {
-    await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
+    const lastOrder = orderSessions[customerNumber];
+    if (lastOrder?.total > 0) {
+      await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
+      await sendWhatsAppMessage(customerNumber, `🧾 To complete your payment, please visit: https://buy.stripe.com/14A14mbBX8TmeaI3alf7i00`);
+      delete orderSessions[customerNumber];
+    } else {
+      await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
+    }
   }
-}
 
   else if (confirmationNo) {
     const lastOrder = orderSessions[customerNumber];
@@ -104,12 +95,12 @@ if (!orderSessions[customerNumber].greeted) {
   }
 
   else {
-    const aiOrder = await parseOrderWithAI(customerText);
-    console.log("Parsed order:", aiOrder);
+    const parsedOrder = parseOrderLocally(customerText);
     const validItems = {};
-    for (const item in aiOrder || {}) {
-      if (MENU.hasOwnProperty(item.toLowerCase())) {
-        let qty = aiOrder[item];
+
+    for (const item in parsedOrder) {
+      if (MENU.hasOwnProperty(item)) {
+        let qty = parsedOrder[item];
         if (qty > 20) qty = 20;
         validItems[item] = qty;
       }
@@ -120,7 +111,7 @@ if (!orderSessions[customerNumber].greeted) {
       let total = 0;
       for (const item in validItems) {
         const qty = validItems[item];
-        const price = MENU[item.toLowerCase()] || 0;
+        const price = MENU[item];
         summary += `- ${qty}x ${item} ($${price * qty})\n`;
         total += price * qty;
       }
@@ -134,10 +125,10 @@ if (!orderSessions[customerNumber].greeted) {
 
       await sendWhatsAppMessage(customerNumber, summary);
     } else {
-      const fallback = await fallbackAI(customerText);
-      await sendWhatsAppMessage(customerNumber, fallback);
+      await sendWhatsAppMessage(customerNumber, "❌ Sorry, we didn’t understand your order. Please mention items like: '2 chicken biryani and 1 coke'.");
     }
   }
+
   res.sendStatus(200);
 });
 
@@ -171,35 +162,22 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-async function parseOrderWithAI(text) {
-  const prompt = `You are a food ordering assistant. The menu is: ${Object.entries(MENU).map(([k, v]) => `${k} $${v}`).join(', ')}.\nExtract only valid menu items and quantities from this message: "${text}"\nRespond only with JSON like: {"naan": 1, "coke": 2}`;
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.2
-    });
-    return JSON.parse(response.choices[0].message.content.trim());
-  } catch (error) {
-    console.error("❌ AI parsing failed:", error.response?.data || error.message);
-    return {};
-  }
-}
+// Basic parser using keyword matching and quantity extraction
+function parseOrderLocally(text) {
+  const result = {};
+  const words = text.toLowerCase().split(/[\s,]+/);
+  const joined = text.toLowerCase();
 
-async function fallbackAI(text) {
-  const fallbackPrompt = `You are a restaurant bot. The user sent this message: \"${text}\". If it's an order, try to extract items. If it's a question, answer helpfully. If it's not understandable, say: 'Sorry, I didn’t understand that. Please order like: 2 biryanis and a coke.'`;
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: fallbackPrompt }],
-      temperature: 0.7
-    });
-    return typeof response.choices[0].message.content === "string"
-      ? response.choices[0].message.content.trim()
-      : "Sorry, I didn’t understand that. Please order like: 2 biryanis and a coke.";
-  } catch (error) {
-    return "Sorry, I didn’t understand that. Please order like: 2 biryanis and a coke.";
+  for (const item of Object.keys(MENU)) {
+    const pattern = new RegExp(`(\\d+)?\\s*${item}`, 'gi');
+    let match;
+    while ((match = pattern.exec(joined)) !== null) {
+      const quantity = parseInt(match[1]) || 1;
+      result[item] = (result[item] || 0) + quantity;
+    }
   }
+
+  return result;
 }
 
 app.listen(port, () => {
