@@ -11,11 +11,20 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "your-local-verify-token";
 if (!accessToken) console.warn("⚠️ accessToken is undefined!");
 if (!phoneNumberId) console.warn("⚠️ phoneNumberId is undefined!");
 
-const MENU = {
-  "chicken biryani": 12,
-  "coke": 3,
-  "naan": 2,
-  "butter chicken": 10
+const MENUS = {
+  indian: {
+    "chicken biryani": 12,
+    "coke": 3,
+    "naan": 2,
+    "butter chicken": 10
+  },
+  italian: {
+    "margherita pizza": 11,
+    "garlic bread": 4,
+    "spaghetti bolognese": 13,
+    "lasagna": 14,
+    "tiramisu": 6
+  }
 };
 
 const orderSessions = {};
@@ -53,12 +62,27 @@ app.post('/webhook', async (req, res) => {
   console.log(`Incoming from ${customerNumber}: ${customerText}`);
 
   if (!orderSessions[customerNumber]) {
-    orderSessions[customerNumber] = { greeted: false, items: {}, total: 0 };
+    orderSessions[customerNumber] = { greeted: false, restaurant: null, items: {}, total: 0 };
   }
 
-  if (!orderSessions[customerNumber].greeted) {
-    orderSessions[customerNumber].greeted = true;
-    await sendWhatsAppMessage(customerNumber, `👋 Welcome to our restaurant! Here's our menu:\n${formatMenu()}`);
+  const session = orderSessions[customerNumber];
+
+  if (!session.greeted) {
+    session.greeted = true;
+    await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from the *Indian Restaurant* or *Italian Restaurant*?`);
+    return res.sendStatus(200);
+  }
+
+  if (!session.restaurant) {
+    if (customerText.includes("indian")) {
+      session.restaurant = "indian";
+      await sendWhatsAppMessage(customerNumber, `🇮🇳 Great choice! Here's our Indian menu:\n${formatMenu("indian")}`);
+    } else if (customerText.includes("italian")) {
+      session.restaurant = "italian";
+      await sendWhatsAppMessage(customerNumber, `🇮🇹 Buon appetito! Here's our Italian menu:\n${formatMenu("italian")}`);
+    } else {
+      await sendWhatsAppMessage(customerNumber, `❓ Please reply with 'Indian' or 'Italian' to choose a restaurant.`);
+    }
     return res.sendStatus(200);
   }
 
@@ -66,40 +90,30 @@ app.post('/webhook', async (req, res) => {
   const confirmationNo = ["no", "nah", "n"].includes(customerText);
 
   if (confirmationYes) {
-    const lastOrder = orderSessions[customerNumber];
-    if (lastOrder?.total > 0) {
+    if (session.total > 0) {
       await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
       await sendWhatsAppMessage(customerNumber, `🧾 To complete your payment, please visit: https://buy.stripe.com/14A14mbBX8TmeaI3alf7i00`);
       delete orderSessions[customerNumber];
     } else {
       await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
     }
-  }
-
-  else if (confirmationNo) {
-    const lastOrder = orderSessions[customerNumber];
-    if (lastOrder?.total > 0) {
+  } else if (confirmationNo) {
+    if (session.total > 0) {
       await sendWhatsAppMessage(customerNumber, `Would you like to add more items to your order or cancel it? Please reply with 'add more' or 'cancel'.`);
     } else {
       await sendWhatsAppMessage(customerNumber, `❌ No active order found.`);
     }
-  }
-
-  else if (customerText.includes("add more")) {
+  } else if (customerText.includes("add more")) {
     await sendWhatsAppMessage(customerNumber, `Sure, send the items you’d like to add to your current order.`);
-  }
-
-  else if (customerText.includes("cancel")) {
+  } else if (customerText.includes("cancel")) {
     delete orderSessions[customerNumber];
     await sendWhatsAppMessage(customerNumber, `✅ Your order has been cancelled.`);
-  }
-
-  else {
-    const parsedOrder = parseOrderLocally(customerText);
+  } else {
+    const parsedOrder = parseOrderLocally(customerText, session.restaurant);
     const validItems = {};
 
     for (const item in parsedOrder) {
-      if (MENU.hasOwnProperty(item)) {
+      if (MENUS[session.restaurant].hasOwnProperty(item)) {
         let qty = parsedOrder[item];
         if (qty > 20) qty = 20;
         validItems[item] = qty;
@@ -111,29 +125,28 @@ app.post('/webhook', async (req, res) => {
       let total = 0;
       for (const item in validItems) {
         const qty = validItems[item];
-        const price = MENU[item];
+        const price = MENUS[session.restaurant][item];
         summary += `- ${qty}x ${item} ($${price * qty})\n`;
         total += price * qty;
       }
       summary += `\n💰 Total: $${total}\nReply 'yes' to confirm or 'no' to modify.`;
 
-      if (!orderSessions[customerNumber]) orderSessions[customerNumber] = { items: {}, total: 0 };
       for (const item in validItems) {
-        orderSessions[customerNumber].items[item] = (orderSessions[customerNumber].items[item] || 0) + validItems[item];
+        session.items[item] = (session.items[item] || 0) + validItems[item];
       }
-      orderSessions[customerNumber].total += total;
+      session.total += total;
 
       await sendWhatsAppMessage(customerNumber, summary);
     } else {
-      await sendWhatsAppMessage(customerNumber, "❌ Sorry, we didn’t understand your order. Please mention items like: '2 chicken biryani and 1 coke'.");
+      await sendWhatsAppMessage(customerNumber, `❌ Sorry, I didn’t understand your order. Please use phrases like: '2 biryanis and 1 coke' or '1 lasagna and 2 garlic bread'.`);
     }
   }
 
   res.sendStatus(200);
 });
 
-function formatMenu() {
-  return Object.entries(MENU)
+function formatMenu(type) {
+  return Object.entries(MENUS[type])
     .map(([item, price]) => `- ${item}: $${price}`)
     .join("\n");
 }
@@ -162,13 +175,11 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-// Basic parser using keyword matching and quantity extraction
-function parseOrderLocally(text) {
+function parseOrderLocally(text, restaurantType) {
   const result = {};
-  const words = text.toLowerCase().split(/[\s,]+/);
   const joined = text.toLowerCase();
 
-  for (const item of Object.keys(MENU)) {
+  for (const item of Object.keys(MENUS[restaurantType])) {
     const pattern = new RegExp(`(\\d+)?\\s*${item}`, 'gi');
     let match;
     while ((match = pattern.exec(joined)) !== null) {
