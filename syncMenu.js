@@ -2,7 +2,7 @@ const axios = require("axios");
 const fs = require("fs");
 const csv = require("csv-parser");
 
-const SHEET_CSV_URL = "YOUR_GOOGLE_SHEET_CSV_LINK_HERE";
+const SHEET_CSV_URL = "YOUR_CSV_LINK_HERE";
 
 async function updateMenuFromSheet() {
   const response = await axios.get(SHEET_CSV_URL, { responseType: 'stream' });
@@ -12,13 +12,15 @@ async function updateMenuFromSheet() {
   response.data
     .pipe(csv())
     .on("data", (row) => {
-      const restaurant = row.Name?.trim().toLowerCase();
-      const item = row.Item?.trim().toLowerCase();
-      const price = parseFloat(row.Price);
+      const restaurant = row["Name"]?.trim().toLowerCase();
+      const item = row["Item"]?.trim().toLowerCase();
+      const price = parseFloat(row["Price"]);
 
       if (restaurant && item && !isNaN(price)) {
         if (!menus[restaurant]) menus[restaurant] = {};
         menus[restaurant][item] = price;
+      } else {
+        console.warn("⚠️ Skipped bad row:", row);
       }
     })
     .on("end", () => {
