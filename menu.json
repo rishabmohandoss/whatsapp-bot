@@ -1,0 +1,15 @@
+{
+  "indian": {
+    "chicken biryani": 12,
+    "naan": 3,
+    "coke": 2,
+    "gobi": 8
+  },
+  "italian": {
+    "pizza": 25,
+    "pasta": 14,
+    "breadsticks": 9,
+    "salad": 6,
+    "coke": 2
+  }
+}
