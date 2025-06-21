@@ -71,14 +71,23 @@ app.post('/webhook', async (req, res) => {
 
   const session = orderSessions[customerNumber];
 
- if (!session.restaurant) {
+if (!session.restaurant) {
   if (!session.greeted) {
     session.greeted = true;
     await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from the *Indian Restaurant* or *Italian Restaurant*?`);
   }
 
   const lowerText = customerText.toLowerCase();
-  const selected = ["indian", "italian"].find(r => lowerText.includes(r));
+  console.log("💬 User message:", lowerText);
+
+  const selected = (() => {
+    if (lowerText.includes("indian")) return "indian";
+    if (lowerText.includes("italian")) return "italian";
+    return null;
+  })();
+
+  console.log("🔍 Detected restaurant:", selected);
+  console.log("📦 MENUS keys:", Object.keys(MENUS));
 
   if (selected && MENUS[selected]) {
     session.restaurant = selected;
