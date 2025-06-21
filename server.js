@@ -31,6 +31,15 @@ function loadMenu() {
 
 loadMenu();
 
+const { execSync } = require("child_process");
+try {
+  execSync("node syncMenu.js");
+  console.log("🔄 Ran syncMenu.js on startup");
+} catch (err) {
+  console.warn("⚠️ syncMenu.js failed:", err.message);
+}
+
+
 const orderSessions = {};
 
 app.use(express.json());
