@@ -2,7 +2,7 @@ const axios = require("axios");
 const fs = require("fs");
 const csv = require("csv-parser");
 
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS98jCobml-ttjMGNhmUyDiasFfS5dB-xw4I5Gos6KRBozaLIOWIyJ8bvXyKkotQouRMu46SWd6lQrq/pub?output=csv";
+const SHEET_CSV_URL = "YOUR_GOOGLE_SHEET_CSV_LINK_HERE";
 
 async function updateMenuFromSheet() {
   const response = await axios.get(SHEET_CSV_URL, { responseType: 'stream' });
@@ -12,16 +12,18 @@ async function updateMenuFromSheet() {
   response.data
     .pipe(csv())
     .on("data", (row) => {
-      const restaurant = row.restaurant.trim().toLowerCase();
-      const item = row.item.trim().toLowerCase();
-      const price = parseFloat(row.price);
+      const restaurant = row.Name?.trim().toLowerCase();
+      const item = row.Item?.trim().toLowerCase();
+      const price = parseFloat(row.Price);
 
-      if (!menus[restaurant]) menus[restaurant] = {};
-      menus[restaurant][item] = price;
+      if (restaurant && item && !isNaN(price)) {
+        if (!menus[restaurant]) menus[restaurant] = {};
+        menus[restaurant][item] = price;
+      }
     })
     .on("end", () => {
       fs.writeFileSync("menu.json", JSON.stringify(menus, null, 2));
-      console.log("✅ Menu updated from Google Sheets");
+      console.log("✅ menu.json updated from Google Sheets");
     });
 }
 
