@@ -71,24 +71,25 @@ app.post('/webhook', async (req, res) => {
 
   const session = orderSessions[customerNumber];
 
+ if (!session.restaurant) {
   if (!session.greeted) {
     session.greeted = true;
     await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from the *Indian Restaurant* or *Italian Restaurant*?`);
-    return res.sendStatus(200);
   }
 
-  if (!session.restaurant) {
-    if (customerText.includes("indian")) {
-      session.restaurant = "indian";
-      await sendWhatsAppMessage(customerNumber, `🇮🇳 Great choice! Here's our Indian menu:\n${formatMenu("indian")}`);
-    } else if (customerText.includes("italian")) {
-      session.restaurant = "italian";
-      await sendWhatsAppMessage(customerNumber, `🇮🇹 Buon appetito! Here's our Italian menu:\n${formatMenu("italian")}`);
-    } else {
-      await sendWhatsAppMessage(customerNumber, `❓ Please reply with 'Indian' or 'Italian' to choose a restaurant.`);
-    }
-    return res.sendStatus(200);
+  const lowerText = customerText.toLowerCase();
+  const selected = ["indian", "italian"].find(r => lowerText.includes(r));
+
+  if (selected && MENUS[selected]) {
+    session.restaurant = selected;
+    const emoji = selected === "indian" ? "🇮🇳" : "🇮🇹";
+    await sendWhatsAppMessage(customerNumber, `${emoji} Great choice! Here's our ${capitalize(selected)} menu:\n${formatMenu(selected)}`);
+  } else {
+    await sendWhatsAppMessage(customerNumber, `❓ Please reply with 'Indian' or 'Italian' to choose a restaurant.`);
   }
+
+  return res.sendStatus(200);
+}
 
   const confirmationYes = ["yes", "yeah", "y"].includes(customerText);
   const confirmationNo = ["no", "nah", "n"].includes(customerText);
@@ -148,6 +149,11 @@ app.post('/webhook', async (req, res) => {
 
   res.sendStatus(200);
 });
+
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 
 function formatMenu(type) {
   return Object.entries(MENUS[type])
