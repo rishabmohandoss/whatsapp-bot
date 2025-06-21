@@ -16,12 +16,18 @@ let MENUS = {};
 
 function loadMenu() {
   try {
+    if (!fs.existsSync("menu.json")) {
+      fs.writeFileSync("menu.json", JSON.stringify({}, null, 2));
+      console.warn("⚠️ menu.json not found, created empty file");
+    }
     MENUS = JSON.parse(fs.readFileSync("menu.json", "utf-8"));
-    console.log("✅ Menu loaded from menu.json");
-  } catch (error) {
-    console.error("❌ Failed to load menu.json:", error.message);
+    console.log("✅ Menu loaded");
+  } catch (err) {
+    console.error("❌ Error loading menu:", err.message);
+    MENUS = {}; // fallback to empty
   }
 }
+
 
 loadMenu();
 
