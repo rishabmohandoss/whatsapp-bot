@@ -11,21 +11,19 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "your-local-verify-token";
 if (!accessToken) console.warn("⚠️ accessToken is undefined!");
 if (!phoneNumberId) console.warn("⚠️ phoneNumberId is undefined!");
 
-const MENUS = {
-  indian: {
-    "chicken biryani": 12,
-    "coke": 3,
-    "naan": 2,
-    "butter chicken": 10
-  },
-  italian: {
-    "margherita pizza": 11,
-    "garlic bread": 4,
-    "spaghetti bolognese": 13,
-    "lasagna": 14,
-    "tiramisu": 6
+const fs = require("fs");
+let MENUS = {};
+
+function loadMenu() {
+  try {
+    MENUS = JSON.parse(fs.readFileSync("menu.json", "utf-8"));
+    console.log("✅ Menu loaded from menu.json");
+  } catch (error) {
+    console.error("❌ Failed to load menu.json:", error.message);
   }
-};
+}
+
+loadMenu();
 
 const orderSessions = {};
 
