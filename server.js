@@ -112,11 +112,21 @@ if (!session.restaurant) {
   const confirmationYes = ["yes", "yeah", "y"].includes(customerText);
   const confirmationNo = ["no", "nah", "n"].includes(customerText);
 
-  if (confirmationYes) {
-    if (session.total > 0) {
-      await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
-      await sendWhatsAppMessage(customerNumber, `🧾 To complete your payment, please visit: https://buy.stripe.com/14A14mbBX8TmeaI3alf7i00`);
-      delete orderSessions[customerNumber];
+if (confirmationYes) {
+  if (session.total > 0) {
+    await sendWhatsAppMessage(customerNumber, `✅ Your order has been confirmed! We'll start preparing it.`);
+
+    try {
+      const paymentRes = await axios.post("https://whatsapp-bot-s0i3.onrender.com/create-paypal-order", {
+        total: session.total
+      });
+      await sendWhatsAppMessage(customerNumber, `🧾 To complete your payment, please visit: ${paymentRes.data.url}`);
+    } catch (err) {
+      console.error("❌ PayPal payment error:", err.message);
+      await sendWhatsAppMessage(customerNumber, `⚠️ We encountered a problem generating your payment link. Please try again in a moment.`);
+    }
+
+    delete orderSessions[customerNumber];
     } else {
       await sendWhatsAppMessage(customerNumber, `❌ Sorry, we couldn't find an order to confirm.`);
     }
@@ -218,7 +228,61 @@ function parseOrderLocally(text, restaurantType) {
 
   return result;
 }
+// Add this BEFORE app.listen()
 
+app.post('/create-paypal-order', async (req, res) => {
+  const { total } = req.body;
+
+  try {
+    const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
+    const tokenRes = await axios.post(
+      'https://api-m.paypal.com/v1/oauth2/token',
+      'grant_type=client_credentials',
+      {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+
+    const accessToken = tokenRes.data.access_token;
+
+    const orderRes = await axios.post(
+      'https://api-m.paypal.com/v2/checkout/orders',
+      {
+        intent: 'CAPTURE',
+        purchase_units: [{
+          amount: {
+            currency_code: 'USD',
+            value: total.toFixed(2)
+          }
+        }],
+        application_context: {
+          return_url: 'https://yourdomain.com/success',
+          cancel_url: 'https://yourdomain.com/cancel'
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const approvalLink = orderRes.data.links.find(link => link.rel === 'approve').href;
+    res.json({ url: approvalLink });
+
+  } catch (err) {
+    console.error("❌ PayPal error:", err.message);
+    res.status(500).json({ error: "Failed to create PayPal order" });
+  }
+});
+
+// Now start the server
 app.listen(port, () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
+
+
