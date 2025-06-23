@@ -236,7 +236,7 @@ app.post('/create-paypal-order', async (req, res) => {
   try {
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64');
     const tokenRes = await axios.post(
-      'https://api-m.paypal.com/v1/oauth2/token',
+'https://api-m.sandbox.paypal.com/v1/oauth2/token',
       'grant_type=client_credentials',
       {
         headers: {
@@ -249,7 +249,7 @@ app.post('/create-paypal-order', async (req, res) => {
     const accessToken = tokenRes.data.access_token;
 
     const orderRes = await axios.post(
-      'https://api-m.paypal.com/v2/checkout/orders',
+'https://api-m.sandbox.paypal.com/v2/checkout/orders',
       {
         intent: 'CAPTURE',
         purchase_units: [{
