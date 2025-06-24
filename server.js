@@ -135,16 +135,56 @@ if (confirmationYes) {
     delete orderSessions[customerNumber];
     await sendWhatsAppMessage(customerNumber, `✅ Your order has been cancelled.`);
   } else {
-    const parsedOrder = parseOrderLocally(customerText, session.restaurant);
-    const validItems = {};
+  const { addItems, removeItems } = parseOrderWithIntent(customerText, session.restaurant);
 
-    for (const item in parsedOrder) {
-      if (MENUS[session.restaurant].hasOwnProperty(item)) {
-        let qty = parsedOrder[item];
-        if (qty > 20) qty = 20;
-        validItems[item] = qty;
+  let changesMade = false;
+  let addedTotal = 0;
+
+  // Apply removals
+  for (const item in removeItems) {
+    if (MENUS[session.restaurant].hasOwnProperty(item)) {
+      const qty = removeItems[item];
+      const currentQty = session.items[item] || 0;
+      const newQty = Math.max(currentQty - qty, 0);
+
+      if (newQty === 0) {
+        delete session.items[item];
+      } else {
+        session.items[item] = newQty;
       }
+
+      session.total -= MENUS[session.restaurant][item] * Math.min(qty, currentQty);
+      changesMade = true;
     }
+  }
+
+  // Apply additions
+  for (const item in addItems) {
+    if (MENUS[session.restaurant].hasOwnProperty(item)) {
+      const qty = addItems[item];
+      session.items[item] = (session.items[item] || 0) + qty;
+      session.total += MENUS[session.restaurant][item] * qty;
+      changesMade = true;
+    }
+  }
+
+  if (changesMade) {
+    let summary = "🧾 Your updated order:\n";
+
+    for (const item in session.items) {
+      const qty = session.items[item];
+      const price = MENUS[session.restaurant][item];
+      summary += `- ${qty}x ${item} ($${qty * price})\n`;
+    }
+
+    summary += `\n💰 Total: $${session.total}\nReply 'yes' to confirm or 'no' to modify.`;
+
+    await sendWhatsAppMessage(customerNumber, summary);
+  } else {
+    await sendWhatsAppMessage(customerNumber, `❌ Sorry, I didn’t understand your update. Try phrases like 'add 1 naan', 'remove 2 cokes', or 'cancel biryani'.`);
+  }
+}
+
 
     if (Object.keys(validItems).length > 0) {
       let summary = "🧾 Your updated order:\n";
@@ -217,20 +257,29 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-function parseOrderLocally(text, restaurantType) {
-  const result = {};
-  const joined = text.toLowerCase();
+function parseOrderWithIntent(text, restaurantType) {
+  const addItems = {};
+  const removeItems = {};
+  const lowered = text.toLowerCase();
 
   for (const item of Object.keys(MENUS[restaurantType])) {
-    const pattern = new RegExp(`(\\d+)?\\s*${item}`, 'gi');
+    const addPattern = new RegExp(`(\\d+)?\\s*${item}`, 'gi');
+    const removePattern = new RegExp(`(remove|delete|no|cancel)\\s*(\\d+)?\\s*${item}`, 'gi');
+
     let match;
-    while ((match = pattern.exec(joined)) !== null) {
-      const quantity = parseInt(match[1]) || 1;
-      result[item] = (result[item] || 0) + quantity;
+
+    while ((match = removePattern.exec(lowered)) !== null) {
+      const qty = parseInt(match[2]) || 1;
+      removeItems[item] = (removeItems[item] || 0) + qty;
+    }
+
+    while ((match = addPattern.exec(lowered)) !== null) {
+      const qty = parseInt(match[1]) || 1;
+      addItems[item] = (addItems[item] || 0) + qty;
     }
   }
 
-  return result;
+  return { addItems, removeItems };
 }
 // Add this BEFORE app.listen()
 
