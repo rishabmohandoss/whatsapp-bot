@@ -83,17 +83,16 @@ app.post('/webhook', async (req, res) => {
 if (!session.restaurant) {
   if (!session.greeted) {
     session.greeted = true;
-    await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from the *Indian Restaurant* or *Italian Restaurant*?`);
+const restaurantList = Object.keys(MENUS)
+  .map(name => `*${capitalize(name)} Restaurant*`)
+  .join(" or ");
+await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from the ${restaurantList}?`);
   }
 
   const lowerText = customerText.toLowerCase();
   console.log("💬 User message:", lowerText);
 
-  const selected = (() => {
-    if (lowerText.includes("indian")) return "indian";
-    if (lowerText.includes("italian")) return "italian";
-    return null;
-  })();
+  const selected = Object.keys(MENUS).find(menuKey => lowerText.includes(menuKey.toLowerCase()));
 
   console.log("🔍 Detected restaurant:", selected);
   console.log("📦 MENUS keys:", Object.keys(MENUS));
