@@ -186,38 +186,6 @@ if (confirmationYes) {
 }
 
 
-    if (Object.keys(validItems).length > 0) {
-      let summary = "🧾 Your updated order:\n";
-let addedTotal = 0;
-
-for (const item in validItems) {
-  const qty = validItems[item];
-  const price = MENUS[session.restaurant][item];
-
-  // ✅ Accumulate quantities
-  session.items[item] = (session.items[item] || 0) + qty;
-  addedTotal += price * qty;
-}
-
-// ✅ Update total without resetting
-session.total += addedTotal;
-
-// ✅ Rebuild the full order summary
-for (const item in session.items) {
-  const qty = session.items[item];
-  const price = MENUS[session.restaurant][item];
-  summary += `- ${qty}x ${item} ($${qty * price})\n`;
-}
-
-summary += `\n💰 Total: $${session.total}\nReply 'yes' to confirm or 'no' to modify.`;
-
-await sendWhatsAppMessage(customerNumber, summary);
-
-      await sendWhatsAppMessage(customerNumber, summary);
-    } else {
-      await sendWhatsAppMessage(customerNumber, `❌ Sorry, I didn’t understand your order. Please use phrases like: '2 biryanis and 1 coke' or '1 lasagna and 2 garlic bread'.`);
-    }
-  }
 
   res.sendStatus(200);
 });
