@@ -147,20 +147,31 @@ if (confirmationYes) {
     }
 
     if (Object.keys(validItems).length > 0) {
-      let summary = "🧾 Your order:\n";
-      let total = 0;
-      for (const item in validItems) {
-        const qty = validItems[item];
-        const price = MENUS[session.restaurant][item];
-        summary += `- ${qty}x ${item} ($${price * qty})\n`;
-        total += price * qty;
-      }
-      summary += `\n💰 Total: $${total}\nReply 'yes' to confirm or 'no' to modify.`;
+      let summary = "🧾 Your updated order:\n";
+let addedTotal = 0;
 
-      for (const item in validItems) {
-        session.items[item] = (session.items[item] || 0) + validItems[item];
-      }
-      session.total += total;
+for (const item in validItems) {
+  const qty = validItems[item];
+  const price = MENUS[session.restaurant][item];
+
+  // ✅ Accumulate quantities
+  session.items[item] = (session.items[item] || 0) + qty;
+  addedTotal += price * qty;
+}
+
+// ✅ Update total without resetting
+session.total += addedTotal;
+
+// ✅ Rebuild the full order summary
+for (const item in session.items) {
+  const qty = session.items[item];
+  const price = MENUS[session.restaurant][item];
+  summary += `- ${qty}x ${item} ($${qty * price})\n`;
+}
+
+summary += `\n💰 Total: $${session.total}\nReply 'yes' to confirm or 'no' to modify.`;
+
+await sendWhatsAppMessage(customerNumber, summary);
 
       await sendWhatsAppMessage(customerNumber, summary);
     } else {
