@@ -28,9 +28,6 @@ function loadMenu() {
   }
 }
 
-
-loadMenu();
-
 const { execSync } = require("child_process");
 try {
   execSync("node syncMenu.js");
@@ -38,6 +35,9 @@ try {
 } catch (err) {
   console.warn("⚠️ syncMenu.js failed:", err.message);
 }
+
+
+loadMenu();
 
 
 const orderSessions = {};
