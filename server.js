@@ -83,26 +83,20 @@ app.post('/webhook', async (req, res) => {
 if (!session.restaurant) {
   if (!session.greeted) {
     session.greeted = true;
-const restaurantList = Object.keys(MENUS)
-  .map(name => `*${capitalize(name)} Restaurant*`)
-  .join(" or ");
-await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from the ${restaurantList}?`);
+    await sendWhatsAppMessage(customerNumber, `👋 Welcome! Would you like to order from one of these: ${Object.keys(MENUS).map(r => `*${capitalize(r)}*`).join(", ")}?`);
+    return res.sendStatus(200); // ⛔ Stop here — don’t evaluate yet
   }
 
-  const lowerText = customerText.toLowerCase();
-  console.log("💬 User message:", lowerText);
+  const selected = Object.keys(MENUS).find(menuKey =>
+    customerText.includes(menuKey.toLowerCase())
+  );
 
-  const selected = Object.keys(MENUS).find(menuKey => lowerText.includes(menuKey.toLowerCase()));
-
-  console.log("🔍 Detected restaurant:", selected);
-  console.log("📦 MENUS keys:", Object.keys(MENUS));
-
-  if (selected && MENUS[selected]) {
+  if (selected) {
     session.restaurant = selected;
-    const emoji = selected === "indian" ? "🇮🇳" : "🇮🇹";
+    const emoji = selected === "indian" ? "🇮🇳" : selected === "italian" ? "🇮🇹" : "🍽️";
     await sendWhatsAppMessage(customerNumber, `${emoji} Great choice! Here's our ${capitalize(selected)} menu:\n${formatMenu(selected)}`);
   } else {
-    await sendWhatsAppMessage(customerNumber, `❓ Please reply with 'Indian' or 'Italian' to choose a restaurant.`);
+    await sendWhatsAppMessage(customerNumber, `❓ Please reply with one of these: ${Object.keys(MENUS).map(r => `'${capitalize(r)}'`).join(", ")}`);
   }
 
   return res.sendStatus(200);
