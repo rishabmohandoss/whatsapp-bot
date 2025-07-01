@@ -1,38 +1,58 @@
-const axios = require("axios");
-const fs = require("fs");
-const csv = require("csv-parser");
+const fs = require('fs');
+const path = require('path');
+const xlsx = require('xlsx');
 
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS98jCobml-ttjMGNhmUyDiasFfS5dB-xw4I5Gos6KRBozaLIOWIyJ8bvXyKkotQouRMu46SWd6lQrq/pub?output=csv";
+const filePath = './Restaurant Ordering System.xlsx'; // Update this path if needed
+const outputPath = './menu.json';
 
-async function updateMenuFromSheet() {
-  const response = await axios.get(SHEET_CSV_URL, { responseType: 'stream' });
-
-  const menus = {};
-
-  response.data
-    .pipe(csv())
-    .on("data", (rawRow) => {
-      // Normalize keys: trim and lowercase
-      const row = {};
-      Object.keys(rawRow).forEach((key) => {
-        row[key.trim().toLowerCase()] = rawRow[key];
-      });
-
-      const restaurant = row["name"]?.trim().toLowerCase();
-      const item = row["item"]?.trim().toLowerCase();
-      const price = parseFloat(row["price"]);
-
-      if (restaurant && item && !isNaN(price)) {
-        if (!menus[restaurant]) menus[restaurant] = {};
-        menus[restaurant][item] = price;
-      } else {
-        console.warn("⚠️ Skipped bad row:", rawRow);
-      }
-    })
-    .on("end", () => {
-      fs.writeFileSync("menu.json", JSON.stringify(menus, null, 2));
-      console.log("✅ menu.json updated from Google Sheets");
-    });
+if (!fs.existsSync(filePath)) {
+  console.error(`❌ File not found: ${filePath}`);
+  process.exit(1);
 }
 
-updateMenuFromSheet();
+try {
+  const workbook = xlsx.readFile(filePath);
+  const sheetNames = workbook.SheetNames;
+
+  const metadataSheet = workbook.Sheets[sheetNames[0]];
+  const metadataRaw = xlsx.utils.sheet_to_json(metadataSheet, { header: 1 });
+
+  const metadata = {};
+  for (let i = 0; i < metadataRaw.length; i++) {
+    const row = metadataRaw[i];
+    if (row[0] && row[1]) {
+      metadata[row[0].trim()] = row[1].toString().trim();
+    }
+  }
+
+  const menu = {};
+
+  for (let i = 1; i < sheetNames.length; i++) {
+    const section = sheetNames[i];
+    const sheet = workbook.Sheets[section];
+    const rows = xlsx.utils.sheet_to_json(sheet);
+
+    const items = rows
+      .filter(row => row.Name && row.Price)
+      .map(row => ({
+        name: row.Name.toString().trim(),
+        description: row.Description?.toString().trim() || "",
+        price: parseFloat(row.Price.toString().replace('$', '').trim())
+      }));
+
+    if (items.length > 0) {
+      menu[section] = items;
+    }
+  }
+
+  const finalJson = {
+    metadata,
+    menu
+  };
+
+  fs.writeFileSync(outputPath, JSON.stringify(finalJson, null, 2));
+  console.log(`✅ Menu exported to ${outputPath}`);
+} catch (err) {
+  console.error("❌ Failed to parse Excel file:", err.message);
+  process.exit(1);
+}
