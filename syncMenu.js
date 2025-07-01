@@ -1,58 +1,55 @@
+const axios = require('axios');
+const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const xlsx = require('xlsx');
 
-const filePath = './Restaurant Ordering System.xlsx'; // Update this path if needed
-const outputPath = './menu.json';
+// Replace with your published XLSX URL
+const SHEET_XLSX_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS98jCobml-ttjMGNhmUyDiasFfS5dB-xw4I5Gos6KRBozaLIOWIyJ8bvXyKkotQouRMu46SWd6lQrq/pub?output=xlsx';
 
-if (!fs.existsSync(filePath)) {
-  console.error(`❌ File not found: ${filePath}`);
-  process.exit(1);
+async function updateMenuFromSheet() {
+  try {
+    const response = await axios.get(SHEET_XLSX_URL, {
+      responseType: 'arraybuffer'
+    });
+
+    const workbook = xlsx.read(response.data, { type: 'buffer' });
+    const sheetNames = workbook.SheetNames;
+
+    const result = {};
+
+    sheetNames.forEach(sheet => {
+      const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheet], { defval: "" });
+
+      // Overview / Metadata sheet
+      if (sheet.toLowerCase().includes("overview")) {
+        const meta = {};
+        rows.forEach(row => {
+          const [key, value] = Object.entries(row)[0];
+          if (key && value) {
+            const normalizedKey = key.toLowerCase().replace(/\s+/g, "_");
+            meta[normalizedKey] = value;
+          }
+        });
+        result.meta = meta;
+      } else {
+        // Menu sections
+        result.menu = result.menu || {};
+        result.menu[sheet] = {};
+        rows.forEach(row => {
+          const name = row.Name?.trim();
+          const price = parseFloat((row.Price || "").toString().replace(/[^0-9.]/g, ""));
+          if (name && !isNaN(price)) {
+            result.menu[sheet][name.toLowerCase()] = price;
+          }
+        });
+      }
+    });
+
+    fs.writeFileSync("menu.json", JSON.stringify(result, null, 2));
+    console.log("✅ menu.json updated from Google Sheets");
+  } catch (err) {
+    console.error("❌ Failed to update menu from Google Sheets:", err.message);
+  }
 }
 
-try {
-  const workbook = xlsx.readFile(filePath);
-  const sheetNames = workbook.SheetNames;
-
-  const metadataSheet = workbook.Sheets[sheetNames[0]];
-  const metadataRaw = xlsx.utils.sheet_to_json(metadataSheet, { header: 1 });
-
-  const metadata = {};
-  for (let i = 0; i < metadataRaw.length; i++) {
-    const row = metadataRaw[i];
-    if (row[0] && row[1]) {
-      metadata[row[0].trim()] = row[1].toString().trim();
-    }
-  }
-
-  const menu = {};
-
-  for (let i = 1; i < sheetNames.length; i++) {
-    const section = sheetNames[i];
-    const sheet = workbook.Sheets[section];
-    const rows = xlsx.utils.sheet_to_json(sheet);
-
-    const items = rows
-      .filter(row => row.Name && row.Price)
-      .map(row => ({
-        name: row.Name.toString().trim(),
-        description: row.Description?.toString().trim() || "",
-        price: parseFloat(row.Price.toString().replace('$', '').trim())
-      }));
-
-    if (items.length > 0) {
-      menu[section] = items;
-    }
-  }
-
-  const finalJson = {
-    metadata,
-    menu
-  };
-
-  fs.writeFileSync(outputPath, JSON.stringify(finalJson, null, 2));
-  console.log(`✅ Menu exported to ${outputPath}`);
-} catch (err) {
-  console.error("❌ Failed to parse Excel file:", err.message);
-  process.exit(1);
-}
+updateMenuFromSheet();
