@@ -73,7 +73,7 @@ app.post("/webhook", async (req, res) => {
       await sendWhatsAppMessage(from, `💳 Please complete your payment here:\n${paymentLink}`);
       pollPaymentStatus(from, paymentLink); // Non-blocking
     } else if (session.paymentConfirmed) {
-      await sendWhatsAppMessage(from, `✅ Your order has been confirmed!`);
+      await sendWhatsAppMessage(from, `✅ Your order has been confirmed! Please pay using this link https://paytm.me/yourshopname-product1`);
       delete orderSessions[from];
     } else {
       await sendWhatsAppMessage(from, `❌ No order found.`);
