@@ -1,7 +1,7 @@
 // /api/webhook.js  (Vercel serverless + Twilio WhatsApp)
 import fs from "fs";
 import path from "path";
-import { Twilio } from "twilio";
+const { Twilio } = require("twilio");
 
 // ───────────────── MENU LOAD (cold-start) ──────────────────
 let MENUS = { full: {}, flat: {} };
