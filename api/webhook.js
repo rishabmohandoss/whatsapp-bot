@@ -3,8 +3,10 @@ import path from "path";
 import pkg from "twilio";
 const { Twilio } = pkg;
 
+// ---- PARSE urlencoded (Twilio default) ----
+import { parse } from "querystring";
 
-// ───────────────── MENU LOAD (cold-start) ──────────────────
+// ─────────── MENU LOAD (cold-start) ───────────
 let MENUS = { full: {}, flat: {} };
 (function loadMenu() {
   try {
@@ -27,20 +29,16 @@ let MENUS = { full: {}, flat: {} };
   }
 })();
 
-// ───────────────── SESSIONS IN MEMORY ───────────────────────
+// ─────────── SESSION STORAGE ───────────
 const sessions = new Map(); // key = whatsapp:+123…
 
-// ───────────────── HELPERS ──────────────────────────────────
 function parseOrder(text) {
   const add = {},
     remove = {};
   const lower = text.toLowerCase();
   for (const item of Object.keys(MENUS.flat)) {
     const addRE = new RegExp(`(?:add\\s*)?(\\d+)?\\s*${item}`, "gi");
-    const remRE = new RegExp(
-      `(?:remove|cancel|delete|no)\\s*(\\d+)?\\s*${item}`,
-      "gi"
-    );
+    const remRE = new RegExp(`(?:remove|cancel|delete|no)\\s*(\\d+)?\\s*${item}`, "gi");
     let m;
     while ((m = addRE.exec(lower))) add[item] = (add[item] || 0) + (parseInt(m[1]) || 1);
     while ((m = remRE.exec(lower))) remove[item] = (remove[item] || 0) + (parseInt(m[1]) || 1);
@@ -70,81 +68,91 @@ function summary(session) {
 }
 
 async function sendTwilio(to, body) {
-  const client = new Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  const client = new Twilio(
+    process.env.TWILIO_ACCOUNT_SID,
+    process.env.TWILIO_AUTH_TOKEN
+  );
   await client.messages.create({
     body,
-    from: process.env.TWILIO_WHATSAPP_NUMBER, // e.g. "whatsapp:+14155238886"
+    from: process.env.TWILIO_WHATSAPP_NUMBER,
     to
   });
 }
 
-// ───────────────── WEBHOOK HANDLER ──────────────────────────
+// ─────────── WEBHOOK HANDLER ───────────
+export const config = {
+  api: {
+    bodyParser: false, // Required to manually parse x-www-form-urlencoded
+  },
+};
+
 export default async function handler(req, res) {
-  /* Twilio only sends POST for inbound messages */
   if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
-  // Twilio sends url-encoded by default – Vercel parses as req.body
-  const from = req.body.From;  // "whatsapp:+1xxxx"
-  const textRaw = req.body.Body || "";
-  const text = textRaw.trim().toLowerCase();
+  let body = "";
+  req.on("data", chunk => {
+    body += chunk.toString();
+  });
 
-  // Basic guard
-  if (!from || !text) return res.status(200).send("ok");
+  req.on("end", async () => {
+    const parsedBody = parse(body);
+    const from = parsedBody.From;
+    const textRaw = parsedBody.Body || "";
+    const text = textRaw.trim().toLowerCase();
 
-  // Ensure a session
-  if (!sessions.has(from))
-    sessions.set(from, { greeted: false, items: {}, total: 0 });
-  const session = sessions.get(from);
+    if (!from || !text) return res.status(200).send("ok");
 
-  // --- User flow ---
-  if (!session.greeted) {
-    session.greeted = true;
-    await sendTwilio(from, "👋 Welcome! Type 'menu' to see our dishes.");
-    return res.status(200).send("greeted");
-  }
+    if (!sessions.has(from))
+      sessions.set(from, { greeted: false, items: {}, total: 0 });
+    const session = sessions.get(from);
 
-  if (text.includes("menu")) {
-    await sendTwilio(from, formatMenu());
-    return res.status(200).send("menu");
-  }
-
-  if (["yes", "y", "confirm"].includes(text)) {
-    if (session.total > 0) {
-      await sendTwilio(from, "✅ Order confirmed! Thank you.");
-      sessions.delete(from);
-    } else {
-      await sendTwilio(from, "❌ No active order to confirm.");
+    if (!session.greeted) {
+      session.greeted = true;
+      await sendTwilio(from, "👋 Welcome! Type 'menu' to see our dishes.");
+      return res.status(200).send("greeted");
     }
-    return res.status(200).send("confirm");
-  }
 
-  if (["no", "n", "cancel"].includes(text)) {
-    sessions.delete(from);
-    await sendTwilio(from, "🗑️ Order cancelled. Start again anytime.");
-    return res.status(200).send("cancel");
-  }
+    if (text.includes("menu")) {
+      await sendTwilio(from, formatMenu());
+      return res.status(200).send("menu");
+    }
 
-  // Add/remove items
-  const { add, remove } = parseOrder(text);
-  if (!Object.keys(add).length && !Object.keys(remove).length) {
-    await sendTwilio(from, "❌ I didn't understand. Try 'add 2 naan'.");
-    return res.status(200).send("unrecognized");
-  }
+    if (["yes", "y", "confirm"].includes(text)) {
+      if (session.total > 0) {
+        await sendTwilio(from, "✅ Order confirmed! Thank you.");
+        sessions.delete(from);
+      } else {
+        await sendTwilio(from, "❌ No active order to confirm.");
+      }
+      return res.status(200).send("confirm");
+    }
 
-  // Apply removals
-  for (const [item, qty] of Object.entries(remove)) {
-    const cur = session.items[item] || 0;
-    const newQ = Math.max(cur - qty, 0);
-    if (newQ === 0) delete session.items[item];
-    else session.items[item] = newQ;
-    session.total -= (MENUS.flat[item] || 0) * Math.min(qty, cur);
-  }
-  // Apply additions
-  for (const [item, qty] of Object.entries(add)) {
-    session.items[item] = (session.items[item] || 0) + qty;
-    session.total += (MENUS.flat[item] || 0) * qty;
-  }
+    if (["no", "n", "cancel"].includes(text)) {
+      sessions.delete(from);
+      await sendTwilio(from, "🗑️ Order cancelled. Start again anytime.");
+      return res.status(200).send("cancel");
+    }
 
-  await sendTwilio(from, summary(session));
-  return res.status(200).send("updated");
+    const { add, remove } = parseOrder(text);
+    if (!Object.keys(add).length && !Object.keys(remove).length) {
+      await sendTwilio(from, "❌ I didn't understand. Try 'add 2 naan'.");
+      return res.status(200).send("unrecognized");
+    }
+
+    for (const [item, qty] of Object.entries(remove)) {
+      const cur = session.items[item] || 0;
+      const newQ = Math.max(cur - qty, 0);
+      if (newQ === 0) delete session.items[item];
+      else session.items[item] = newQ;
+      session.total -= (MENUS.flat[item] || 0) * Math.min(qty, cur);
+    }
+
+    for (const [item, qty] of Object.entries(add)) {
+      session.items[item] = (session.items[item] || 0) + qty;
+      session.total += (MENUS.flat[item] || 0) * qty;
+    }
+
+    await sendTwilio(from, summary(session));
+    return res.status(200).send("updated");
+  });
 }
