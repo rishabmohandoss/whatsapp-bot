@@ -45,7 +45,7 @@ async function updateMenuFromSheet() {
       }
     });
 
-    fs.writeFileSync("menu.json", JSON.stringify(result, null, 2));
+fs.writeFileSync("menu.json", JSON.stringify({ menu: result.menu }, null, 2));
     console.log("✅ menu.json updated from Google Sheets");
   } catch (err) {
     console.error("❌ Failed to update menu from Google Sheets:", err.message);
