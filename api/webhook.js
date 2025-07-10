@@ -1,6 +1,8 @@
-const fs = require("fs");
-const path = require("path");
-const { Twilio } = require("twilio");
+import fs from "fs";
+import path from "path";
+import pkg from "twilio";
+const { Twilio } = pkg;
+
 
 // ───────────────── MENU LOAD (cold-start) ──────────────────
 let MENUS = { full: {}, flat: {} };
