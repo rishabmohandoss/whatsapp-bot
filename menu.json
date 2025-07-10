@@ -1,15 +1,41 @@
 {
-  "indian": {
-    "chicken biryani": 12,
-    "naan": 3,
-    "coke": 2,
-    "gobi": 8
-  },
-  "italian": {
-    "pizza": 25,
-    "pasta": 14,
-    "breadsticks": 9,
-    "salad": 6,
-    "coke": 2
+  "menu": {
+    "Restaurant": {},
+    "Starters": {
+      "sandwhich": 41.99,
+      "paneer tikka": 7.99,
+      "onion bhaji": 5.99,
+      "chicken pakora": 8.49,
+      "aloo tikki": 5.49,
+      "veg manchurian (dry)": 7.99,
+      "tandoori chicken (half)": 9.99,
+      "hara bhara kabab": 6.99,
+      "seekh kebab": 10.49,
+      "dahi puri": 6.49
+    },
+    "Main Course": {
+      "butter chicken": 14.99,
+      "hyderabadi dum biryani": 16.99,
+      "masala dosa": 9.99,
+      "chicken tikka masala": 15.99,
+      "palak paneer": 13.49,
+      "lamb rogan josh": 17.99,
+      "vegetarian thali": 17.49,
+      "dal makhani": 11.99,
+      "chana masala": 10.99,
+      "fish curry": 16.49
+    },
+    "Drinks": {
+      "mango lassi": 4.49,
+      "sweet lassi": 3.99,
+      "salted lassi": 3.99,
+      "masala chai": 2.99,
+      "filter coffee": 3.49,
+      "nimbu pani": 2.99,
+      "rose milk": 3.49,
+      "thandai": 4.99,
+      "soft drinks": 1.99,
+      "bottled water": 1.49
+    }
   }
 }
