@@ -1,28 +1,12 @@
 {
-  "name": "restaurant-ordering-system",
+  "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "A WhatsApp-based ordering system using Express and Google Sheets for menu management.",
-  "main": "api/webhook.js",
-  "scripts": {
-    "start": "vercel dev"
-  },
+  "type": "module",
   "dependencies": {
     "axios": "^1.10.0",
-    "csv-parser": "^3.2.0",
     "dotenv": "^17.0.1",
     "express": "^4.21.2",
+    "twilio": "^4.0.0",
     "xlsx": "^0.18.5"
-  },
-  "engines": {
-    "node": "18.x"
-  },
-  "license": "MIT",
-  "keywords": [
-    "node",
-    "express",
-    "whatsapp",
-    "vercel",
-    "google-sheets",
-    "restaurant"
-  ]
+  }
 }
