@@ -1,10 +1,13 @@
+import express from "express";
+import bodyParser from "body-parser";
 import fs from "fs";
 import path from "path";
+import { parse } from "querystring";
 import pkg from "twilio";
 const { Twilio } = pkg;
 
-// ---- PARSE urlencoded (Twilio default) ----
-import { parse } from "querystring";
+const app = express();
+app.use(bodyParser.text({ type: "*/*" }));
 
 // ─────────── MENU LOAD (cold-start) ───────────
 let MENUS = { full: {}, flat: {} };
@@ -30,11 +33,10 @@ let MENUS = { full: {}, flat: {} };
 })();
 
 // ─────────── SESSION STORAGE ───────────
-const sessions = new Map(); // key = whatsapp:+123…
+const sessions = new Map();
 
 function parseOrder(text) {
-  const add = {},
-    remove = {};
+  const add = {}, remove = {};
   const lower = text.toLowerCase();
   for (const item of Object.keys(MENUS.flat)) {
     const addRE = new RegExp(`(?:add\\s*)?(\\d+)?\\s*${item}`, "gi");
@@ -79,80 +81,71 @@ async function sendTwilio(to, body) {
   });
 }
 
-// ─────────── WEBHOOK HANDLER ───────────
-export const config = {
-  api: {
-    bodyParser: false, // Required to manually parse x-www-form-urlencoded
-  },
-};
+// ─────────── WEBHOOK ROUTE ───────────
+app.post("/webhook", async (req, res) => {
+  let parsedBody = parse(req.body);
+  const from = parsedBody.From;
+  const textRaw = parsedBody.Body || "";
+  const text = textRaw.trim().toLowerCase();
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
+  if (!from || !text) return res.status(200).send("ok");
 
-  let body = "";
-  req.on("data", chunk => {
-    body += chunk.toString();
-  });
+  if (!sessions.has(from))
+    sessions.set(from, { greeted: false, items: {}, total: 0 });
+  const session = sessions.get(from);
 
-  req.on("end", async () => {
-    const parsedBody = parse(body);
-    const from = parsedBody.From;
-    const textRaw = parsedBody.Body || "";
-    const text = textRaw.trim().toLowerCase();
+  if (!session.greeted) {
+    session.greeted = true;
+    await sendTwilio(from, "👋 Welcome! Type 'menu' to see our dishes.");
+    return res.status(200).send("greeted");
+  }
 
-    if (!from || !text) return res.status(200).send("ok");
+  if (text.includes("menu")) {
+    await sendTwilio(from, formatMenu());
+    return res.status(200).send("menu");
+  }
 
-    if (!sessions.has(from))
-      sessions.set(from, { greeted: false, items: {}, total: 0 });
-    const session = sessions.get(from);
-
-    if (!session.greeted) {
-      session.greeted = true;
-      await sendTwilio(from, "👋 Welcome! Type 'menu' to see our dishes.");
-      return res.status(200).send("greeted");
-    }
-
-    if (text.includes("menu")) {
-      await sendTwilio(from, formatMenu());
-      return res.status(200).send("menu");
-    }
-
-    if (["yes", "y", "confirm"].includes(text)) {
-      if (session.total > 0) {
-        await sendTwilio(from, "✅ Order confirmed! Thank you.");
-        sessions.delete(from);
-      } else {
-        await sendTwilio(from, "❌ No active order to confirm.");
-      }
-      return res.status(200).send("confirm");
-    }
-
-    if (["no", "n", "cancel"].includes(text)) {
+  if (["yes", "y", "confirm"].includes(text)) {
+    if (session.total > 0) {
+      await sendTwilio(from, "✅ Order confirmed! Thank you.");
       sessions.delete(from);
-      await sendTwilio(from, "🗑️ Order cancelled. Start again anytime.");
-      return res.status(200).send("cancel");
+    } else {
+      await sendTwilio(from, "❌ No active order to confirm.");
     }
+    return res.status(200).send("confirm");
+  }
 
-    const { add, remove } = parseOrder(text);
-    if (!Object.keys(add).length && !Object.keys(remove).length) {
-      await sendTwilio(from, "❌ I didn't understand. Try 'add 2 naan'.");
-      return res.status(200).send("unrecognized");
-    }
+  if (["no", "n", "cancel"].includes(text)) {
+    sessions.delete(from);
+    await sendTwilio(from, "🗑️ Order cancelled. Start again anytime.");
+    return res.status(200).send("cancel");
+  }
 
-    for (const [item, qty] of Object.entries(remove)) {
-      const cur = session.items[item] || 0;
-      const newQ = Math.max(cur - qty, 0);
-      if (newQ === 0) delete session.items[item];
-      else session.items[item] = newQ;
-      session.total -= (MENUS.flat[item] || 0) * Math.min(qty, cur);
-    }
+  const { add, remove } = parseOrder(text);
+  if (!Object.keys(add).length && !Object.keys(remove).length) {
+    await sendTwilio(from, "❌ I didn't understand. Try 'add 2 naan'.");
+    return res.status(200).send("unrecognized");
+  }
 
-    for (const [item, qty] of Object.entries(add)) {
-      session.items[item] = (session.items[item] || 0) + qty;
-      session.total += (MENUS.flat[item] || 0) * qty;
-    }
+  for (const [item, qty] of Object.entries(remove)) {
+    const cur = session.items[item] || 0;
+    const newQ = Math.max(cur - qty, 0);
+    if (newQ === 0) delete session.items[item];
+    else session.items[item] = newQ;
+    session.total -= (MENUS.flat[item] || 0) * Math.min(qty, cur);
+  }
 
-    await sendTwilio(from, summary(session));
-    return res.status(200).send("updated");
-  });
-}
+  for (const [item, qty] of Object.entries(add)) {
+    session.items[item] = (session.items[item] || 0) + qty;
+    session.total += (MENUS.flat[item] || 0) * qty;
+  }
+
+  await sendTwilio(from, summary(session));
+  return res.status(200).send("updated");
+});
+
+// ─────────── START SERVER ───────────
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
