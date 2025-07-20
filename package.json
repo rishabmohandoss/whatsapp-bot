@@ -1,4 +1,6 @@
 {
+  npm install express body-parser
+
   "name": "whatsapp-bot",
   "version": "1.0.0",
   "type": "module",
