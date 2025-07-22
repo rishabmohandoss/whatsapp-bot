@@ -1,7 +1,7 @@
-import axios from 'axios';
-import xlsx from 'xlsx';
-import fs from 'fs';
-import path from 'path';
+const axios = require('axios');
+const xlsx = require('xlsx');
+const fs = require('fs');
+const path = require('path');
 
 // Replace with your published XLSX URL
 const SHEET_XLSX_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS98jCobml-ttjMGNhmUyDiasFfS5dB-xw4I5Gos6KRBozaLIOWIyJ8bvXyKkotQouRMu46SWd6lQrq/pub?output=xlsx';
@@ -45,7 +45,7 @@ async function updateMenuFromSheet() {
       }
     });
 
-    fs.writeFileSync("menu.json", JSON.stringify({ menu: result.menu }, null, 2));
+    fs.writeFileSync("menu.json", JSON.stringify(result, null, 2));
     console.log("✅ menu.json updated from Google Sheets");
   } catch (err) {
     console.error("❌ Failed to update menu from Google Sheets:", err.message);
