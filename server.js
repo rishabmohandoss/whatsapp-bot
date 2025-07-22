@@ -1,151 +1,211 @@
-import express from "express";
-import bodyParser from "body-parser";
-import fs from "fs";
-import path from "path";
-import { parse } from "querystring";
-import pkg from "twilio";
-const { Twilio } = pkg;
+const express = require("express");
+const axios = require("axios");
+const fs = require("fs");
 
 const app = express();
-app.use(bodyParser.text({ type: "*/*" }));
+const port = process.env.PORT || 3000;
+const phoneNumberId = process.env.PHONE_NUMBER_ID;
+const accessToken = process.env.ACCESS_TOKEN;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const { execSync } = require("child_process");
 
-// ─────────── MENU LOAD (cold-start) ───────────
-let MENUS = { full: {}, flat: {} };
-(function loadMenu() {
+try {
+  execSync("node syncMenu.js");
+  console.log("🔄 Ran syncMenu.js on server startup");
+} catch (e) {
+  console.warn("⚠️ Failed to sync menu on startup:", e.message);
+}
+
+
+let MENUS = {};
+function loadMenu() {
   try {
-    const raw = JSON.parse(
-      fs.readFileSync(path.join(process.cwd(), "menu.json"), "utf-8")
-    );
+    const raw = JSON.parse(fs.readFileSync("menu.json"));
     MENUS = {
       full: raw.menu,
       flat: Object.entries(raw.menu)
-        .filter(([s]) => s !== "Restaurant")
+        .filter(([section]) => section !== "Restaurant")
         .flatMap(([_, items]) => Object.entries(items))
         .reduce((acc, [name, price]) => {
           acc[name.toLowerCase()] = price;
           return acc;
         }, {})
     };
-    console.log(`✅ Menu loaded (${Object.keys(MENUS.flat).length} items)`);
+    console.log("✅ Menu loaded");
   } catch (e) {
-    console.error("❌ Failed to load menu.json:", e.message);
+    console.error("❌ Error loading menu:", e.message);
+    MENUS = { full: {}, flat: {} };
   }
-})();
+}
+loadMenu();
 
-// ─────────── SESSION STORAGE ───────────
-const sessions = new Map();
+const orderSessions = {};
+app.use(express.json());
 
-function parseOrder(text) {
-  const add = {}, remove = {};
-  const lower = text.toLowerCase();
-  for (const item of Object.keys(MENUS.flat)) {
-    const addRE = new RegExp(`(?:add\\s*)?(\\d+)?\\s*${item}`, "gi");
-    const remRE = new RegExp(`(?:remove|cancel|delete|no)\\s*(\\d+)?\\s*${item}`, "gi");
-    let m;
-    while ((m = addRE.exec(lower))) add[item] = (add[item] || 0) + (parseInt(m[1]) || 1);
-    while ((m = remRE.exec(lower))) remove[item] = (remove[item] || 0) + (parseInt(m[1]) || 1);
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
   }
-  return { add, remove };
+});
+
+app.post("/webhook", async (req, res) => {
+  const entry = req.body.entry?.[0];
+  const message = entry?.changes?.[0]?.value?.messages?.[0];
+  if (!message?.text) return res.sendStatus(200);
+
+  const from = message.from;
+  const text = message.text.body.trim().toLowerCase();
+
+  if (!orderSessions[from]) {
+    orderSessions[from] = {
+      greeted: false,
+      items: {},
+      total: 0
+    };
+  }
+
+  const session = orderSessions[from];
+
+  if (!session.greeted) {
+    session.greeted = true;
+    await sendWhatsAppMessage(from, `👋 Welcome! Would you like to order from one of these: *Menu*?`);
+    return res.sendStatus(200);
+  }
+
+  if (text.includes("menu")) {
+    await sendWhatsAppMessage(from, `🍽️ Great choice! Here's our Menu:
+${formatMenu(MENUS.full)}`);
+    return res.sendStatus(200);
+  }
+// Handle confirmation
+if (["yes", "y", "confirm"].includes(text)) {
+  if (session.total > 0) {
+    await sendWhatsAppMessage(from, `✅ Your order has been confirmed! Thank you!`);
+    delete orderSessions[from]; // Reset the session
+  } else {
+    await sendWhatsAppMessage(from, `❌ No active order to confirm.`);
+  }
+  return res.sendStatus(200);
 }
 
-function formatMenu() {
-  return Object.entries(MENUS.full)
-    .filter(([s]) => s !== "Restaurant")
-    .map(([sec, items]) => {
-      const rows = Object.entries(items)
-        .map(([n, p]) => `- ${n}: $${p}`)
+if (["no", "n", "cancel"].includes(text)) {
+  await sendWhatsAppMessage(from, `📝 Okay! You can send updated items or start a new order anytime.`);
+  return res.sendStatus(200);
+}
+
+const { addItems, removeItems } = parseOrderLocally(text, MENUS.flat);
+
+if (Object.keys(addItems).length === 0 && Object.keys(removeItems).length === 0) {
+  await sendWhatsAppMessage(
+    from,
+    `❌ Sorry, I didn’t understand your update. Try phrases like 'add 1 naan', 'remove 2 cokes', or 'cancel biryani'.`
+  );
+  return res.sendStatus(200);
+}
+
+// Remove items
+for (const item in removeItems) {
+  const qty = removeItems[item];
+  const currentQty = session.items[item] || 0;
+  const newQty = Math.max(currentQty - qty, 0);
+
+  if (newQty === 0) {
+    delete session.items[item];
+  } else {
+    session.items[item] = newQty;
+  }
+
+  session.total -= (MENUS.flat[item] || 0) * Math.min(qty, currentQty);
+}
+
+// Add items
+for (const item in addItems) {
+  const qty = addItems[item];
+  session.items[item] = (session.items[item] || 0) + qty;
+  session.total += (MENUS.flat[item] || 0) * qty;
+}
+
+  let summary = "📎 Your updated order:\n";
+  for (const item in session.items) {
+    const qty = session.items[item];
+    const price = MENUS.flat[item];
+    summary += `- ${qty}x ${item} ($${(qty * price).toFixed(2)})\n`;
+  }
+  summary += `\n💰 Total: $${session.total.toFixed(2)}\nReply 'yes' to confirm or 'no' to modify.`;
+
+  await sendWhatsAppMessage(from, summary);
+  res.sendStatus(200);
+});
+
+function formatMenu(menu) {
+  return Object.entries(menu)
+    .filter(([section]) => section !== "Restaurant")
+    .map(([section, items]) => {
+      const list = Object.entries(items)
+        .map(([item, price]) => `- ${item}: $${price}`)
         .join("\n");
-      return `*${sec}*\n${rows}`;
+      return `\n*${section}*\n${list}`;
     })
     .join("\n\n");
 }
 
-function summary(session) {
-  let txt = "📎 Your updated order:\n";
-  for (const [item, qty] of Object.entries(session.items)) {
-    txt += `- ${qty}x ${item} ($${(qty * MENUS.flat[item]).toFixed(2)})\n`;
-  }
-  txt += `\n💰 Total: $${session.total.toFixed(2)}\nReply 'yes' to confirm or 'no' to modify.`;
-  return txt;
-}
+function parseOrderLocally(text, menu) {
+  const addItems = {};
+  const removeItems = {};
+  const lowered = text.toLowerCase();
 
-async function sendTwilio(to, body) {
-  const client = new Twilio(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_AUTH_TOKEN
-  );
-  await client.messages.create({
-    body,
-    from: process.env.TWILIO_WHATSAPP_NUMBER,
-    to
-  });
-}
+  for (const item of Object.keys(menu)) {
+    const removePattern = new RegExp(`(remove|cancel|delete|no)\\s*(\\d+)?\\s*${item}`, 'gi');
+    const addPattern = new RegExp(`(?:add\\s*)?(\\d+)?\\s*${item}`, 'gi');
 
-// ─────────── WEBHOOK ROUTE ───────────
-app.post("/webhook", async (req, res) => {
-  let parsedBody = parse(req.body);
-  const from = parsedBody.From;
-  const textRaw = parsedBody.Body || "";
-  const text = textRaw.trim().toLowerCase();
+    let match;
 
-  if (!from || !text) return res.status(200).send("ok");
-
-  if (!sessions.has(from))
-    sessions.set(from, { greeted: false, items: {}, total: 0 });
-  const session = sessions.get(from);
-
-  if (!session.greeted) {
-    session.greeted = true;
-    await sendTwilio(from, "👋 Welcome! Type 'menu' to see our dishes.");
-    return res.status(200).send("greeted");
-  }
-
-  if (text.includes("menu")) {
-    await sendTwilio(from, formatMenu());
-    return res.status(200).send("menu");
-  }
-
-  if (["yes", "y", "confirm"].includes(text)) {
-    if (session.total > 0) {
-      await sendTwilio(from, "✅ Order confirmed! Thank you.");
-      sessions.delete(from);
-    } else {
-      await sendTwilio(from, "❌ No active order to confirm.");
+    // Look for remove expressions
+    while ((match = removePattern.exec(lowered)) !== null) {
+      const qty = parseInt(match[2]) || 1;
+      removeItems[item] = (removeItems[item] || 0) + qty;
     }
-    return res.status(200).send("confirm");
+
+    // Look for add expressions
+    while ((match = addPattern.exec(lowered)) !== null) {
+      const qty = parseInt(match[1]) || 1;
+      addItems[item] = (addItems[item] || 0) + qty;
+    }
   }
 
-  if (["no", "n", "cancel"].includes(text)) {
-    sessions.delete(from);
-    await sendTwilio(from, "🗑️ Order cancelled. Start again anytime.");
-    return res.status(200).send("cancel");
+  return { addItems, removeItems };
+}
+
+async function sendWhatsAppMessage(to, message) {
+  const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
+
+  try {
+    await axios.post(
+      url,
+      {
+        messaging_product: "whatsapp",
+        to: to,
+        type: "text",
+        text: { body: message }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    console.log(`✅ Message sent to ${to}`);
+  } catch (error) {
+    console.error("❌ Failed to send message:", error.response?.data || error.message);
   }
+}
 
-  const { add, remove } = parseOrder(text);
-  if (!Object.keys(add).length && !Object.keys(remove).length) {
-    await sendTwilio(from, "❌ I didn't understand. Try 'add 2 naan'.");
-    return res.status(200).send("unrecognized");
-  }
-
-  for (const [item, qty] of Object.entries(remove)) {
-    const cur = session.items[item] || 0;
-    const newQ = Math.max(cur - qty, 0);
-    if (newQ === 0) delete session.items[item];
-    else session.items[item] = newQ;
-    session.total -= (MENUS.flat[item] || 0) * Math.min(qty, cur);
-  }
-
-  for (const [item, qty] of Object.entries(add)) {
-    session.items[item] = (session.items[item] || 0) + qty;
-    session.total += (MENUS.flat[item] || 0) * qty;
-  }
-
-  await sendTwilio(from, summary(session));
-  return res.status(200).send("updated");
-});
-
-// ─────────── START SERVER ───────────
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
 });
